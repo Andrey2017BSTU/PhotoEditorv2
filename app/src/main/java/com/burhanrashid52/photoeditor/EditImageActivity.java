@@ -2,22 +2,33 @@ package com.burhanrashid52.photoeditor;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.content.ActivityNotFoundException;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Log;
+import android.util.Size;
 import android.view.View;
 import android.view.animation.AnticipateOvershootInterpolator;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.app.AlertDialog;
 import androidx.constraintlayout.widget.ConstraintLayout;
@@ -34,8 +45,13 @@ import com.burhanrashid52.photoeditor.filters.FilterViewAdapter;
 import com.burhanrashid52.photoeditor.tools.EditingToolsAdapter;
 import com.burhanrashid52.photoeditor.tools.ToolType;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URL;
 
 import ja.burhanrashid52.photoeditor.OnPhotoEditorListener;
 import ja.burhanrashid52.photoeditor.PhotoEditor;
@@ -44,6 +60,7 @@ import ja.burhanrashid52.photoeditor.PhotoFilter;
 import ja.burhanrashid52.photoeditor.SaveSettings;
 import ja.burhanrashid52.photoeditor.TextStyleBuilder;
 import ja.burhanrashid52.photoeditor.ViewType;
+
 
 public class EditImageActivity extends BaseActivity implements OnPhotoEditorListener,
         View.OnClickListener,
@@ -56,6 +73,7 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
     private static final int CAMERA_REQUEST = 52;
     private static final int PICK_REQUEST = 53;
     PhotoEditor mPhotoEditor;
+    Intent CropIntent;
     private PhotoEditorView mPhotoEditorView;
     private PropertiesBSFragment mPropertiesBSFragment;
     private EmojiBSFragment mEmojiBSFragment;
@@ -72,6 +90,17 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
     @Nullable
     @VisibleForTesting
     Uri mSaveImageUri;
+
+
+    String path = "android.resource://com.lenovo.photoeditor/";
+    Uri quri = Uri.parse(path + R.drawable.got_s);
+
+
+
+    File file;
+
+    public EditImageActivity() throws FileNotFoundException {
+    }
 
 
     @Override
@@ -102,19 +131,16 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
         mRvFilters.setAdapter(mFilterViewAdapter);
 
 
-        //Typeface mTextRobotoTf = ResourcesCompat.getFont(this, R.font.roboto_medium);
-        //Typeface mEmojiTypeFace = Typeface.createFromAsset(getAssets(), "emojione-android.ttf");
+
 
         mPhotoEditor = new PhotoEditor.Builder(this, mPhotoEditorView)
-                .setPinchTextScalable(true) // set flag to make text scalable when pinch
-                //.setDefaultTextTypeface(mTextRobotoTf)
-                //.setDefaultEmojiTypeface(mEmojiTypeFace)
-                .build(); // build photo editor sdk
+                .setPinchTextScalable(true)
+
+                .build();
 
         mPhotoEditor.setOnPhotoEditorListener(this);
 
-        //Set Image Dynamically
-        // mPhotoEditorView.getSource().setImageResource(R.drawable.color_palette);
+
     }
 
     private void handleIntentImage(ImageView source) {
@@ -233,9 +259,7 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
                 break;
 
             case R.id.imgGallery:
-                Intent intent = new Intent();
-                intent.setType("image/*");
-                intent.setAction(Intent.ACTION_GET_CONTENT);
+                Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
                 startActivityForResult(Intent.createChooser(intent, "Select Picture"), PICK_REQUEST);
                 break;
         }
@@ -279,6 +303,8 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
                     public void onSuccess(@NonNull String imagePath) {
                         hideLoading();
                         showSnackbar("Image Saved Successfully");
+                        quri = Uri.fromFile(new File(imagePath));
+                        mPhotoEditorView.getSource().setImageURI(mSaveImageUri);
                         mSaveImageUri = Uri.fromFile(new File(imagePath));
                         mPhotoEditorView.getSource().setImageURI(mSaveImageUri);
                     }
@@ -306,17 +332,31 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
                     mPhotoEditor.clearAllViews();
                     Bitmap photo = (Bitmap) data.getExtras().get("data");
                     mPhotoEditorView.getSource().setImageBitmap(photo);
+                    quri = getImageUri(this,photo);
                     break;
                 case PICK_REQUEST:
                     try {
                         mPhotoEditor.clearAllViews();
                         Uri uri = data.getData();
+                        quri = uri;
                         Bitmap bitmap = MediaStore.Images.Media.getBitmap(getContentResolver(), uri);
                         mPhotoEditorView.getSource().setImageBitmap(bitmap);
+
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
                     break;
+                case 1:
+
+                    Bundle bundle = data.getExtras();
+                    Bitmap bitmap = bundle.getParcelable("data");
+                    quri = getImageUri(this, bitmap);
+                    mPhotoEditorView.getSource().setImageBitmap(bitmap);
+
+                    break;
+
+
+
             }
         }
     }
@@ -331,6 +371,8 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
     public void onOpacityChanged(int opacity) {
         mPhotoEditor.setOpacity(opacity);
         mTxtCurrentTool.setText(R.string.label_brush);
+
+
     }
 
     @Override
@@ -341,8 +383,10 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
 
     @Override
     public void onEmojiClick(String emojiUnicode) {
+
         mPhotoEditor.addEmoji(emojiUnicode);
         mTxtCurrentTool.setText(R.string.label_emoji);
+
     }
 
     @Override
@@ -389,13 +433,15 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
         mPhotoEditor.setFilterEffect(photoFilter);
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
     @Override
-    public void onToolSelected(ToolType toolType) {
+    public void onToolSelected(ToolType toolType) throws IOException {
         switch (toolType) {
             case BRUSH:
                 mPhotoEditor.setBrushDrawingMode(true);
                 mTxtCurrentTool.setText(R.string.label_brush);
                 mPropertiesBSFragment.show(getSupportFragmentManager(), mPropertiesBSFragment.getTag());
+
                 break;
             case TEXT:
                 TextEditorDialogFragment textEditorDialogFragment = TextEditorDialogFragment.show(this);
@@ -419,11 +465,19 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
                 showFilter(true);
                 break;
             case EMOJI:
-                mEmojiBSFragment.show(getSupportFragmentManager(), mEmojiBSFragment.getTag());
+
+                CropImage();
+
                 break;
             case STICKER:
-                mStickerBSFragment.show(getSupportFragmentManager(), mStickerBSFragment.getTag());
+                //showFilter(true);
+                Bitmap bitmapFirst = MediaStore.Images.Media.getBitmap(getContentResolver(), quri);
+                Bitmap bitmapSecond = MediaStore.Images.Media.getBitmap(getContentResolver(),Uri.parse(path + R.drawable.ramka));
+                mPhotoEditorView.getSource().setImageBitmap(overlay(bitmapFirst,bitmapSecond));
+                // mStickerBSFragment.show(getSupportFragmentManager(), mStickerBSFragment.getTag());
                 break;
+
+
         }
     }
 
@@ -463,4 +517,51 @@ public class EditImageActivity extends BaseActivity implements OnPhotoEditorList
             super.onBackPressed();
         }
     }
+    private void CropImage() {
+
+
+
+        try{
+
+
+            CropIntent = new Intent("com.android.camera.action.CROP");
+            CropIntent.setDataAndType(quri,"image/*");
+
+
+            CropIntent.putExtra("crop","true");
+            CropIntent.putExtra("outputX",180);
+            CropIntent.putExtra("outputY",180);
+            CropIntent.putExtra("aspectX",3);
+            CropIntent.putExtra("aspectY",4);
+            CropIntent.putExtra("scaleUpIfNeeded",true);
+            CropIntent.putExtra("return-data",true);
+
+            startActivityForResult(CropIntent,1);
+        }
+        catch (ActivityNotFoundException ex)
+        {
+
+        }
+
+    }
+    public Uri getImageUri(Context inContext, Bitmap inImage) {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        inImage.compress(Bitmap.CompressFormat.JPEG, 100, bytes);
+        String path = MediaStore.Images.Media.insertImage(inContext.getContentResolver(), inImage, "Title", null);
+        return Uri.parse(path);
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
+    public  Bitmap overlay(Bitmap firstImage, Bitmap secondImage) throws IOException {
+        Bitmap result = Bitmap.createBitmap(firstImage.getWidth(), firstImage.getHeight(), firstImage.getConfig());
+        Canvas canvas = new Canvas(result);
+        canvas.drawBitmap(firstImage, new Matrix(), null);
+        Bitmap curBitmap = MediaStore.Images.Media.getBitmap(getContentResolver(), quri);
+        secondImage = Bitmap.createScaledBitmap(secondImage,curBitmap.getWidth(),curBitmap.getHeight(),false);
+        Paint p = new Paint();
+        p.setAlpha(127);
+        canvas.drawBitmap(secondImage,new Matrix() , p);
+        return result;
+    }
+
 }

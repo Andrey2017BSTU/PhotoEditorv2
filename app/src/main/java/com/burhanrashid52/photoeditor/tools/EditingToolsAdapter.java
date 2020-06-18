@@ -11,6 +11,7 @@ import android.widget.TextView;
 
 import com.burhanrashid52.photoeditor.R;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,7 +36,7 @@ public class EditingToolsAdapter extends RecyclerView.Adapter<EditingToolsAdapte
     }
 
     public interface OnItemSelected {
-        void onToolSelected(ToolType toolType);
+        void onToolSelected(ToolType toolType) throws IOException;
     }
 
     class ToolModel {
@@ -82,7 +83,11 @@ public class EditingToolsAdapter extends RecyclerView.Adapter<EditingToolsAdapte
             itemView.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    mOnItemSelected.onToolSelected(mToolList.get(getLayoutPosition()).mToolType);
+                    try {
+                        mOnItemSelected.onToolSelected(mToolList.get(getLayoutPosition()).mToolType);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
                 }
             });
         }
